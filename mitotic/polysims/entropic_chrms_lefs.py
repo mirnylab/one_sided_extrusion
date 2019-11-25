@@ -1,0 +1,562 @@
+import pickle
+import os
+from time import sleep
+import numpy as np
+from openmmlib import polymerutils
+from openmmlib.polymerutils import scanBlocks
+from openmmlib.openmmlib import Simulation
+from openmmlib.polymerutils import grow_rw
+
+import tools
+import polymerSimSetup as pss
+
+import pyximport; pyximport.install()
+from entropic_smcTranslocator import smcTranslocatorDirectional
+
+import gc
+
+
+# -------defining parameters----------
+#  -- basic loop extrusion parameters
+SEPARATION = 100 # N // SEPARATION = num smcs
+LIFETIME = 500
+N = 60000   # number of monomers
+pconfig="compact" #which polymer configuration we'll use.
+cconfig="segregation" #which chain config to use
+bconfig="centromere" # generally goes with cconfig...
+
+COMPACT_FIRST = 1
+PREBLOCKS=100
+preblock_steps = 5000
+
+PAUSEPROB=0.06
+FRACTION_ONESIDED=1.
+PAIRED=0
+SLIDE=0
+SLIDE_PAUSEPROB=1.0
+SWITCH=0.0
+PUSH=0
+BELT_ON=1.
+BELT_OFF=0.
+LEFS_ATTRACT = 0                                                                            
+LEF_ATTRACTION_ENERGY = 0.5   
+
+dens = 0.1
+box = (N / dens) ** (1./3.)  # density = 0.1.
+
+# parameters for smc bonds 
+smcBondWiggleDist = 0.2
+smcBondDist = 0.5
+#polymer itself
+stiff = 0
+polymerBondWiggleDist = 0.1
+
+block = 0  # starting block 
+smcStepsPerBlock = 1  # now doing 1 SMC step per block 
+steps = 250   # steps per block (now extrusion advances by one step per block) #this is how many polymer sim steps per SMC step
+saveEveryBlocks = 10   # save every 10 blocks (saving every block is now too much almost)
+skipSavedBlocksBeginning = 20  # how many blocks (saved) to skip after you restart LEF positions
+totalSavedBlocks = 100 #40  # how many blocks to save (number of blocks done is totalSavedBlocks * saveEveryBlocks)
+restartMilkerEveryBlocks = 100 
+BLOCK_SKIP = 25 #for text files for vmd
+
+gpu_choice=0
+INTEGRATOR="langevin"
+ERROR_TOL=0.02
+dt=80
+THERMOSTAT=0.01
+
+
+#folder 
+main_folder= "output/"
+folder = "trajectory"
+NO_LOG_NAME=True#is log currently unnamed?
+FLAG=""
+
+
+####command line options##############################
+#parse argument list
+params= tools.argsList()
+for p in params.arg_dict:
+    print(p, params.arg_dict[p])
+
+if "log" in params.arg_dict:
+    log_name=params.arg_dict["log"]
+    NO_LOG_NAME=False
+    
+if "pconfig" in params.arg_dict:
+    pconfig=params.arg_dict["pconfig"]
+if "cconfig" in params.arg_dict:
+    cconfig=params.arg_dict["cconfig"]
+if "bconfig" in params.arg_dict:
+    bconfig=params.arg_dict["bconfig"]
+    
+if "density" in params.arg_dict:
+    dens= float(params.arg_dict["density"])
+    box = (N/dens)**(1./3.)
+if "monos" in params.arg_dict:
+    N=int(params.arg_dict["monos"])
+    box = (N/dens)**(1./3.)
+    
+if "separation" in params.arg_dict:
+    SEPARATION=int(params.arg_dict["separation"])
+if "lifetime" in params.arg_dict:
+    LIFETIME=float(params.arg_dict["lifetime"])
+if "pause" in params.arg_dict:
+    PAUSEPROB=float(params.arg_dict["pause"])
+if "frac" in params.arg_dict:
+    FRACTION_ONESIDED=float(params.arg_dict["frac"])
+if "paired" in params.arg_dict:
+    PAIRED=int(params.arg_dict["paired"])
+if "slide" in params.arg_dict:
+    SLIDE=int(params.arg_dict["slide"])
+if "slidepause" in params.arg_dict:
+    SLIDE_PAUSEPROB=float(params.arg_dict["slidepause"])
+if "belton" in params.arg_dict:
+    BELT_ON=float(params.arg_dict["belton"])
+if "beltoff" in params.arg_dict:
+    BELT_OFF=float(params.arg_dict["beltoff"])
+if "switch" in params.arg_dict:
+    SWITCH=float(params.arg_dict["switch"])
+
+if "polybond" in params.arg_dict:
+    polymerBondWiggleDist=float(params.arg_dict["polybond"])
+if "smcbond" in params.arg_dict:
+    smcBondWiggleDist=float(params.arg_dict["smcbond"])
+if "lefsattract" in params.arg_dict:                         
+    LEFS_ATTRACT = int(params.arg_dict["lefsattract"])                                                        
+if "lefenergy" in params.arg_dict:                                                                                                       
+    LEF_ATTRACTION_ENERGY = float(params.arg_dict["lefenergy"])
+
+if "thermostat" in params.arg_dict:
+    THERMOSTAT= float(params.arg_dict["thermostat"])
+if "errortol" in params.arg_dict:
+    ERROR_TOL= float(params.arg_dict["errortol"])
+if "integrator" in params.arg_dict:
+    INTEGRATOR = params.arg_dict["integrator"]
+    if INTEGRATOR is "Brownian":
+        if THEROMSTAT<1:
+            print("Warning: Brownian integrator with thermostat=", THERMOSTAT)
+if "dt" in params.arg_dict:
+    dt = float(params.arg_dict["dt"])
+
+if "numblocks" in params.arg_dict:
+    totalSavedBlocks=int(params.arg_dict["numblocks"])
+if "blocksteps" in params.arg_dict:
+    steps=int(params.arg_dict["blocksteps"])
+if "blockskip" in params.arg_dict:
+    saveEveryBlocks=int(params.arg_dict["blockskip"])
+if "startskip" in params.arg_dict:
+    skipSavedBlocksBeginning=int(params.arg_dict["startskip"])
+
+if "gpu" in params.arg_dict:
+    gpu_choice=params.arg_dict["gpu"]
+    
+if "flag" in params.arg_dict:
+    FLAG= params.arg_dict["flag"] #append a str to the end of a folder
+
+
+if (SLIDE_PAUSEPROB < 1-0.5/np.cosh(0.5*1.5)):
+    #1.5's are for loop prefactor.
+    for i in range(10):
+        print("WARNING")
+    print("WARNING: slidepause prob is too small! simulations will bias toward forward sliding!")
+    for i in range(2):
+        print("***** ***** ***** *****")
+
+ 
+# code to automatically fix intervals if inputs are not compatible.
+# The code guarantees *at least* the value that was input for each
+if restartMilkerEveryBlocks<100:
+    restartMilkerEveryBlocks= 100
+if restartMilkerEveryBlocks % saveEveryBlocks > 0:
+    print("restartMilkerEveryBlocks", restartMilkerEveryBlocks, "with saveEveryBlocks", saveEveryBlocks, "not allowed")
+    if saveEveryBlocks < restartMilkerEveryBlocks:
+        temp=restartMilkerEveryBlocks//saveEveryBlocks
+        if restartMilkerEveryBlocks%temp == 0:
+            saveEveryBlocks= restartMilkerEveryBlocks//temp
+        else:
+            saveEveryBlocks=restartMilkerEveryBlocks//temp
+            while restartMilkerEveryBlocks % saveEveryBlocks > 0:
+                saveEveryBlocks = saveEveryBlocks+1
+                temp=restartMilkerEveryBlocks//saveEveryBlocks
+                print(temp,saveEveryBlocks)
+    else:
+        restartMilkerEveryBlocks=saveEveryBlocks
+    print("changed to", restartMilkerEveryBlocks, "and", saveEveryBlocks)
+
+if (skipSavedBlocksBeginning * saveEveryBlocks) % restartMilkerEveryBlocks > 0:
+    print("skipSavedBlocksBeginning", skipSavedBlocksBeginning, "not allowed with saveEveryBlocks", saveEveryBlocks, "and restartMilkerEveryBlocks", restartMilkerEveryBlocks)
+    if skipSavedBlocksBeginning * saveEveryBlocks < restartMilkerEveryBlocks:
+        skipSavedBlocksBeginning= restartMilkerEveryBlocks//saveEveryBlocks
+    else:
+        while skipSavedBlocksBeginning * saveEveryBlocks % restartMilkerEveryBlocks > 0:
+            skipSavedBlocksBeginning= skipSavedBlocksBeginning+1
+    print("skipSavedBlocksBeginning changed to", skipSavedBlocksBeginning)
+
+if (totalSavedBlocks * saveEveryBlocks) % restartMilkerEveryBlocks > 0:
+    print("totalSavedBlocks", totalSavedBlocks, "not allowed with saveEveryBlocks", saveEveryBlocks, "and restartMilkerEveryBlocks", restartMilkerEveryBlocks)
+    if totalSavedBlocks * saveEveryBlocks < restartMilkerEveryBlocks:
+        totalSavedBlocks= restartMilkerEveryBlocks//saveEveryBlocks
+    else:
+        while (totalSavedBlocks * saveEveryBlocks)%restartMilkerEveryBlocks > 0:
+            totalSavedBlocks=totalSavedBlocks+1
+    print("totalSavedBlocks changed to", totalSavedBlocks)
+
+assert restartMilkerEveryBlocks % saveEveryBlocks == 0 
+assert (skipSavedBlocksBeginning * saveEveryBlocks) % restartMilkerEveryBlocks == 0 
+assert (totalSavedBlocks * saveEveryBlocks) % restartMilkerEveryBlocks == 0 
+
+savesPerMilker = restartMilkerEveryBlocks // saveEveryBlocks
+milkerInitsSkip = saveEveryBlocks * skipSavedBlocksBeginning  // restartMilkerEveryBlocks
+milkerInitsTotal  = (totalSavedBlocks + skipSavedBlocksBeginning) * saveEveryBlocks // restartMilkerEveryBlocks
+print("Milker will be initialized {0} times, first {1} will be skipped".format(milkerInitsTotal, milkerInitsSkip))
+
+
+trialnumber=1
+while True:
+    folder= main_folder+"output{0:06d}_LE_".format(trialnumber)
+    if NO_LOG_NAME:
+        log_name= "log_LE_"
+    if not os.path.exists(main_folder):
+        os.mkdir(main_folder)
+    folder=folder+"density{0}_n{1}_{2}_{3}_{4}_lifetime{5}_separation{6}_pauseprob{7}".format(dens,N,pconfig,cconfig,bconfig,
+                                                                                          LIFETIME, SEPARATION, PAUSEPROB)
+    if NO_LOG_NAME:
+        log_name=log_name+"density{0}n{1}{2}{3}{4}lifetime{5}separation{6}pauseprob{7}".format(dens,N,pconfig,cconfig,bconfig,
+                                                                                            LIFETIME, SEPARATION, PAUSEPROB)
+    if FRACTION_ONESIDED < 1.0:
+        folder=folder+"_frac{0}".format(FRACTION_ONESIDED)
+        if NO_LOG_NAME: 
+            log_name=log_name+"frac{0}".format(FRACTION_ONESIDED)
+    if PAIRED:
+        folder=folder+"_paired"
+        if NO_LOG_NAME:
+            log_name=log_name+"paired"
+    if LEFS_ATTRACT:
+        folder=folder+"_lefattr{0}".format(LEF_ATTRACTION_ENERGY)
+        if NO_LOG_NAME:
+            log_name=log_name+"lefattr{0}".format(LEF_ATTRACTION_ENERGY)
+    folder=folder+FLAG
+    if NO_LOG_NAME:
+        log_name=log_name+FLAG
+        log_name=log_name+".txt"
+    
+    sleep(int(np.random.randint(0,12)))
+    if os.path.exists(folder):
+        trialnumber= trialnumber+1
+        continue
+    else:
+        os.mkdir(folder)
+        break
+
+
+print("trial number", trialnumber)
+print(folder)
+sleep(1)
+
+
+#################################################################################################
+
+class smcTranslocatorMilker(object):
+
+    def __init__(self, smcTransObject):
+        """
+        :param smcTransObject: smc translocator object to work with
+        """
+        self.smcObject = smcTransObject
+        self.allBonds = []
+
+    def setParams(self, activeParamDict, inactiveParamDict):
+        """
+        A method to set parameters for bonds.
+        It is a separate method because you may want to have a Simulation object already existing
+
+        :param activeParamDict: a dict (argument:value) of addBond arguments for active bonds
+        :param inactiveParamDict:  a dict (argument:value) of addBond arguments for inactive bonds
+
+        """
+        self.activeParamDict = activeParamDict
+        self.inactiveParamDict = inactiveParamDict
+
+
+    def setup(self, bondForce,  blocks = 100, smcStepsPerBlock = 1, attractiveForce=None):
+        """
+        A method that milks smcTranslocator object
+        and creates a set of unique bonds, etc.
+
+        :param bondForce: a bondforce object (new after simulation restart!)
+        :param blocks: number of blocks to precalculate
+        :param smcStepsPerBlock: number of smcTranslocator steps per block
+        :return:
+        """
+
+
+        if len(self.allBonds) != 0:
+            raise ValueError("Not all bonds were used; {0} sets left".format(len(self.allBonds)))
+
+        self.bondForce = bondForce
+        self.attractiveForce = attractiveForce
+
+        #precalculating all bonds
+        allBonds = []
+        all_immobile = []
+        #get bond state at time from now until blocks into the future
+        for dummy in range(blocks):
+            self.smcObject.steps(smcStepsPerBlock)
+            if FRACTION_ONESIDED > 0:
+                left, right, inactive = self.smcObject.getSMCs()
+                bonds = [(int(i), int(j)) for i,j in zip(left, right)]
+                immobile_idxs = [bonds[i][inactive[i]-1] for i in range(len(inactive)) if inactive[i] > 0]
+            elif not PAIRED:
+                left, right = self.smcObject.getSMCs()
+                bonds = [(int(i), int(j)) for i,j in zip(left, right)]
+            else:
+                left, right, center = self.smcObject.getSMCs()
+                bonds = [(int(i), int(j)) for i,j in zip(left, center) if not int(i)==int(j)]
+                bonds.extend([(int(i), int(j)) for i,j in zip(center, right) if not int(i)==int(j)])
+            allBonds.append(bonds)#append list of bonds for this time
+
+            if LEFS_ATTRACT:
+                all_immobile.append(immobile_idxs)
+
+        self.allBonds = allBonds
+        self.uniqueBonds = list(set(sum(allBonds, [])))
+
+        #adding forces and getting bond indices
+        self.bondInds = []
+        self.curBonds = allBonds.pop(0)
+        if LEFS_ATTRACT:
+            self.all_immobile = all_immobile
+            self.cur_immobile = all_immobile.pop(0)
+
+        for bond in self.uniqueBonds:
+            paramset = self.activeParamDict if (bond in self.curBonds) else self.inactiveParamDict
+            ind = bondForce.addBond(bond[0], bond[1], **paramset)
+            self.bondInds.append(ind)
+
+        if LEFS_ATTRACT:
+            for i in self.cur_immobile:
+                attractiveForce.setParticleParameters(i, (1,0)) # LEF heads to add as attractive
+
+        self.bondToInd = {i:j for i,j in zip(self.uniqueBonds, self.bondInds)}
+
+        if LEFS_ATTRACT:
+            return self.curBonds,[], self.cur_immobile
+        else:
+            return self.curBonds,[]
+
+
+
+    def step(self, context, verbose=False):
+        """
+        Update the bonds to the next step.
+        It sets bonds for you automatically!
+        :param context:  context
+        :return: (current bonds, previous step bonds); just for reference
+        """
+        if len(self.allBonds) == 0:
+            raise ValueError("No bonds left to run; you should restart simulation and run setup  again")
+
+        pastBonds = self.curBonds
+        self.curBonds = self.allBonds.pop(0)  # getting current bonds
+
+        bondsRemove = [i for i in pastBonds if i not in self.curBonds]
+        bondsAdd = [i for i in self.curBonds if i not in pastBonds]
+
+        if LEFS_ATTRACT:
+            past_immobile = self.cur_immobile
+            self.cur_immobile = self.all_immobile.pop(0)
+            immobile_remove = [i for i in past_immobile if i not in self.cur_immobile]
+            immobile_add = [i for i in self.cur_immobile if i not in past_immobile]
+
+        bondsStay = [i for i in pastBonds if i in self.curBonds]
+        if verbose:
+            print("{0} bonds stay, {1} new bonds, {2} bonds removed".format(len(bondsStay),
+                                                                            len(bondsAdd), len(bondsRemove)))
+        bondsToChange = bondsAdd + bondsRemove
+        bondsIsAdd = [True] * len(bondsAdd) + [False] * len(bondsRemove)
+        for bond, isAdd in zip(bondsToChange, bondsIsAdd):
+            ind = self.bondToInd[bond]
+            paramset = self.activeParamDict if isAdd else self.inactiveParamDict
+            self.bondForce.setBondParameters(ind, bond[0], bond[1], **paramset)  # actually updating bonds
+        self.bondForce.updateParametersInContext(context)  # now run this to update things in the context
+        return self.curBonds, pastBonds
+
+    
+    
+#do initialization for the polymer
+data=pss.init_positions(N,polymer=pconfig,length=box)
+chains_list=pss.construct_chains_list(N,construction=cconfig)
+bonds_to_add=pss.list_extra_bonds(N,bondstruc=bconfig)
+
+ 
+def initModel():
+    # this just inits the simulation model. 
+    birthArray = np.zeros(N, dtype=np.double) + 0.1
+    deathArray = np.zeros(N, dtype=np.double) + 1. / LIFETIME
+    stallDeathArray = deathArray
+    pauseArray = np.zeros(N, dtype=np.double) + PAUSEPROB 
+
+
+    slidePauseArray = np.zeros(N, dtype=np.double) + SLIDE_PAUSEPROB
+    spf=slidePauseArray
+    spb=slidePauseArray
+
+    smcNum = N // SEPARATION
+
+    belt_on_array = np.zeros(smcNum, dtype=np.double) + BELT_ON
+    belt_off_array = np.zeros(smcNum, dtype=np.double) + BELT_OFF
+
+    stallList = [ch[0] for ch in chains_list]
+    stallList.extend([ch[1]-1 for ch in chains_list])
+    print("stallList after chains:", stallList)
+    if bconfig == "centromere":
+        stallList.extend([N//4,3*N//4])
+        print("extended stallList:", stallList)
+    stallLeftArray = np.zeros(N, dtype = np.double)
+    stallRightArray = np.zeros(N, dtype = np.double)
+    for i in stallList:
+        stallLeftArray[i]=1.
+        stallRightArray[i]=1.
+    
+    oneSidedArray = np.ones(smcNum, dtype=np.int64)
+    for i in range(int((1.-FRACTION_ONESIDED)*smcNum)):
+        oneSidedArray[i] = 0
+
+    switchArray=np.zeros(smcNum, dtype=np.double) + SWITCH
+
+    SMCTran = smcTranslocatorDirectional(birthArray, deathArray, stallLeftArray, stallRightArray, pauseArray,
+                                         stallDeathArray, smcNum, oneSidedArray, paired=PAIRED, slide=SLIDE,
+                                         slidepauseForward=spf, slidepauseBackward=spb,
+                                         switch=switchArray, pushing=PUSH, belt_on=belt_on_array, belt_off=belt_off_array,  
+                                         SLIDE_PAUSEPROB=SLIDE_PAUSEPROB)
+
+    return SMCTran
+
+
+#####entangle the polymers together first 
+if COMPACT_FIRST:
+    my_sim = pss.newSim(timestep=dt,thermostat=THERMOSTAT) 
+
+    my_sim.setup(platform="CUDA", PBC=False, PBCbox=[box, box, box],
+                 GPU=gpu_choice, integrator=INTEGRATOR, errorTol=ERROR_TOL,
+                 precision="mixed")  # set up GPU here
+    my_sim.saveFolder(folder)
+    my_sim.load(data)
+    my_sim.setChains(chains_list)
+    for b in bonds_to_add:
+        my_sim.addBond(b["i"],b["j"],bondType=b["bondType"])
+
+    my_sim.addHarmonicPolymerBonds(wiggleDist=polymerBondWiggleDist)
+    if stiff > 0:
+        my_sim.addGrosbergStiffness(stiff)
+    my_sim.addPolynomialRepulsiveForce(trunc=1.5, radiusMult=1.05)
+
+    #spherically confining for initialization
+    my_sim.addSphericalConfinement(density=0.35, k=3.)
+
+
+    my_sim.step = block
+
+    for ii in range(PREBLOCKS): 
+        my_sim.doBlock(steps=preblock_steps, increment=False)
+        if ii%10==0:
+            print("preblock step", ii)
+    my_sim.save()
+    print("printing at", my_sim.step)
+    tools.print_text_file(my_sim, folder, [], my_sim.step,box)
+
+    data = my_sim.getData()  # save data and step, and delete the simulation
+    block = my_sim.step
+    del my_sim
+    sleep(0.2)
+
+
+##############
+
+SMCTran = initModel()  # defining actual smc translocator object 
+
+
+# now polymer simulation code starts
+
+# ------------feed smcTran to the milker---
+SMCTran.steps(10*LIFETIME) # first steps to "equilibrate" SMC dynamics. If desired of course. 
+milker = smcTranslocatorMilker(SMCTran)   # now feed this thing to milker (do it once!)
+#--------- end new code ------------
+
+
+for milkerCount in range(milkerInitsTotal):
+    doSave = milkerCount >= milkerInitsSkip
+    
+    # simulation parameters are defined below 
+    my_sim = pss.newSim(timestep=dt, thermostat=THERMOSTAT)
+    my_sim.setup(platform="CUDA", PBC=True, PBCbox=[box, box, box], 
+                 GPU=gpu_choice, integrator=INTEGRATOR, errorTol=ERROR_TOL, 
+                 precision="mixed")  # set up GPU here
+    my_sim.saveFolder(folder)
+    my_sim.load(data)
+    
+    my_sim.setChains(chains_list)
+    for b in bonds_to_add:
+        my_sim.addBond(b["i"],b["j"],bondType=b["bondType"])
+    
+    my_sim.addHarmonicPolymerBonds(wiggleDist=polymerBondWiggleDist)
+    if stiff > 0:
+        my_sim.addGrosbergStiffness(stiff)
+
+    if LEFS_ATTRACT:
+        my_sim.addSelectiveSSWForce([], [], repulsionEnergy=1.5, repulsionRadius=1.05, attractionEnergy=0., selectiveAttractionEnergy=LEF_ATTRACTION_ENERGY)
+    else:
+        my_sim.addPolynomialRepulsiveForce(trunc=1.5, radiusMult=1.05)
+
+    my_sim.step = block
+
+    # ------------ initializing milker; adding bonds ---------
+    # copied from addBond
+    kbond = my_sim.kbondScalingFactor / (smcBondWiggleDist ** 2)
+    bondDist = smcBondDist * my_sim.length_scale
+
+    activeParams = {"length":bondDist,"k":kbond}
+    inactiveParams = {"length":bondDist, "k":0}
+    milker.setParams(activeParams, inactiveParams)
+     
+    # this step actually puts all bonds in and sets first bonds to be what they should be
+    if not LEFS_ATTRACT:
+        milker.setup(bondForce=my_sim.forceDict["HarmonicBondForce"],
+                     blocks=restartMilkerEveryBlocks,   # default value; milk for 100 blocks
+                     smcStepsPerBlock=smcStepsPerBlock)  # now only one step of SMC per step
+    else:
+        milker.setup(bondForce=my_sim.forceDict["HarmonicBondForce"],
+                     blocks=restartMilkerEveryBlocks,   # default value; milk for 100 blocks
+                     smcStepsPerBlock=smcStepsPerBlock, attractiveForce=my_sim.forceDict["Nonbonded"])  # now only one step of SMC per step
+    print("Restarting milker")
+
+    my_sim.doBlock(steps=steps, increment=False)  # do block for the first time with first set of bonds in
+
+    ###################
+    for i in range(restartMilkerEveryBlocks - 1):
+        curBonds, pastBonds = milker.step(my_sim.context)  # this updates bonds. You can do something with bonds here
+
+        if i % saveEveryBlocks == (saveEveryBlocks - 2):  
+            my_sim.doBlock(steps=steps, increment = doSave)
+            if doSave: 
+                my_sim.save()
+                pickle.dump(curBonds, open(os.path.join(my_sim.folder, "SMC{0}.dat".format(my_sim.step)),'wb'))
+
+                if my_sim.step % BLOCK_SKIP == 0:
+                    print("smc printing at", my_sim.step, "with {0} smcs".format(len(curBonds)))
+                    tools.print_text_file(my_sim, folder, curBonds, my_sim.step, box)
+        else:
+            my_sim.integrator.step(steps)  # do steps without getting the positions from the GPU (faster)
+
+    data = my_sim.getData()  # save data and step, and delete the simulation
+    block = my_sim.step
+    del my_sim
+
+    sleep(0.2)  # wait 200ms for sanity (to let garbage collector do its magic)
+
+
+os.system("mv "+log_name+" "+folder)
+
+gc.collect()
