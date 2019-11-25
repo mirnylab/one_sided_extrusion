@@ -142,3 +142,34 @@ def get_n_leafs(idx, children):
         else:
             return sum([get_n_leafs(child, children) 
                         for child in children[idx]])
+
+
+
+def compute_compaction_transparent(l_sites,r_sites):
+    lefs=list(zip(l_sites,r_sites))
+    lefs.sort(key=lambda x:x[0])
+    covered=0
+    left_end=lefs[0][0]
+    right_end=lefs[0][1]
+    
+    l_list=[]
+    r_list=[]
+    
+    smc=1
+    while smc<len(lefs):
+        if lefs[smc][0] > right_end:
+            covered += right_end - left_end + 1
+            l_list.append(left_end)
+            r_list.append(right_end)
+            left_end = lefs[smc][0]
+            right_end = lefs[smc][1]
+        else:
+            if lefs[smc][1] >= right_end:
+                right_end=lefs[smc][1]
+        smc += 1
+    
+    covered += right_end - left_end + 1
+    l_list.append(left_end)
+    r_list.append(right_end)
+
+    return covered, l_list, r_list
