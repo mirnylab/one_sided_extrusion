@@ -9,7 +9,6 @@ from openmmlib import polymerutils
 from openmmlib.polymerutils import scanBlocks
 from openmmlib.openmmlib import Simulation
 from openmmlib.polymerutils import grow_rw
-import analysis_plot_lib
 sys.path.insert(0, "/net/levsha/share/homes/aafke/Documents/PolymerCode")
 import pyximport; pyximport.install()
 from smcTranslocator_switch_zloop_biasedloading import smcTranslocatorDirectional
@@ -18,7 +17,7 @@ from smcTranslocator_switch_zloop_biasedloading import smcTranslocatorDirectiona
 # -------defining parameters----------
 # -- basic loop extrusion parameters--
 GPU = sys.argv[1]
-LIFETIME = int(sys.argv[2])   # Lifetime 
+LIFETIME = int(sys.argv[2])   # Processivity
 SEPARATION = int(sys.argv[3]) # Separation LEFs in number of monomers
 TADSizes=[400,100,200,400,100,200,400,100,200,400,100,200,400,100,200,400,100,200,400,100,200,400,100,200]
 'lleft and lright are defined in SMCTranslocator!'
@@ -31,30 +30,27 @@ dens = 0.2 #float(sys.argv[4]) # 0.2 # density in beads / volume. The density ca
 box = (N / dens) ** 0.33  # Define size of the bounding box for Periodic Boundary Conditions
 data = polymerutils.grow_rw(N, int(box) - 2)  # creates a compact conformation 
 block = 0  # starting block 
-
-dt = 1 # Time step of each smcTranslocatorPol iteration, the time step is chosen such that MaxRate*dt=0.1,
-#as this should give proper time step distributions.
 kon=0#float(sys.argv[5]) # CTCF binding rate
 koff=1#float(sys.argv[6]) #CTCF unbinding rate
-CTCFsites=np.array([0])#np.array([300, 1100, 1400, 2200, 2500, 3300, 3600, 4400, 4700, 5500])#np.array([ 148,  331,  555,  754,  782,  994, 1210, 1301, 1449, 1537, 1795,1885, 1933, 2064, 2192, 2240, 2411, 2641, 2697]) #CTCF binding sites (take np.cumsum(TADsizes) if you want to compare to CTCF sites that are stall sites). These TAD sizes assume a certain mapping of monomer to bp, should carefully think about that before choosing the polymer stiffness, LEF processivity, etc.
+CTCFsites=np.array([0])#CTCF binding sites (take np.cumsum(TADsizes) if you want to compare to CTCF sites that are stall sites). 
 CTCFCohesinEn=0# float(sys.argv[7]) # Cohesin-CTCF interaction energy in kT, without a neighbouring cohesin, the unbinding rate of CTCF is koff, if a cohesin is right next to a CTCF site, the CTCF unbinding rate is koff*exp(-CTCFCohesinEn)
 
-kswitch=0#float(sys.argv[4])
-CTCFPause=1#0.02#0.1#0.1
+kswitch=0 #float(sys.argv[4])
+CTCFPause=1 
 zloops=1
 'this variable is controlled in smcTranslocator'
 
-steps = int(200*(smcStepsPerBlock*dt)) # nr of 3D simulation blocks btw advancing LEFs. For deterministic stepping choose 200-250 steps per block, otherwise, rescale with stepping probability. When genes are sparse, smcStepsPerBLock*dt is approximately the number of smc steps per smc block.
+steps = int(200*(smcStepsPerBlock)) # nr of 3D simulation blocks btw advancing LEFs. For deterministic stepping choose 200-250 steps per block, otherwise, rescale with stepping probability. When genes are sparse, smcStepsPerBLock*dt is approximately the number of smc steps per smc block.
 ConvGenes = True #True: Convergent genes, False: isolated genes
 IncreasedBinding =1#int(sys.argv[4])   
 'SET dirLoading=1 in smc Translocator if you want directional loading'
 # float(sys.argv[4])# Factor of increased binding at CTCF site
 stg = 0.8#float(sys.argv[7]) #Probability of stalling at TAD boundary
 
-saveEveryBlocks = int(100/(smcStepsPerBlock*dt))   # 10 save every 10 blocks (saving every block is now too much almost)
-skipSavedBlocksBeginning = int(20/(smcStepsPerBlock*dt))  # how many blocks (saved) to skip after you restart LEF positions
-totalSavedBlocks = 4000  # how many blocks to save (number of blocks done is totalSavedBlocks * saveEveryBlocks)
-restartMilkerEveryBlocks = int(100/(smcStepsPerBlock*dt))   
+saveEveryBlocks = int(100/(smcStepsPerBlock))   # 10 save every 10 blocks (saving every block is now too much almost)
+skipSavedBlocksBeginning = int(20/(smcStepsPerBlock))  # how many blocks (saved) to skip after you restart LEF positions
+totalSavedBlocks = 200#4000  # how many blocks to save (number of blocks done is totalSavedBlocks * saveEveryBlocks)
+restartMilkerEveryBlocks = int(100/(smcStepsPerBlock))   
 #Only one Hamiltonian can be loaded at a time to the simkt, but we want to update the bonds every time a LEF steps. Loading a new Hamiltonian costs a lot of time. Instead we precalculate bonds and load all positions at once as one big Hamiltonian and just change the prefactors. 
 
 # parameters for smc bonds 
@@ -80,12 +76,12 @@ if os.path.isdir(FullFileName):
 assert restartMilkerEveryBlocks % saveEveryBlocks == 0 
 assert (skipSavedBlocksBeginning * saveEveryBlocks) % restartMilkerEveryBlocks == 0 
 assert (totalSavedBlocks * saveEveryBlocks) % restartMilkerEveryBlocks == 0 
-assert smcStepsPerBlock*dt<6 # max number of steps per smc block should not be too large to prevent 'jerky' polymer motion
+assert smcStepsPerBlock<6 # max number of steps per smc block should not be too large to prevent 'jerky' polymer motion
 
 savesPerMilker = restartMilkerEveryBlocks // saveEveryBlocks
 milkerInitsSkip = saveEveryBlocks * skipSavedBlocksBeginning  // restartMilkerEveryBlocks
 milkerInitsTotal  = (totalSavedBlocks + skipSavedBlocksBeginning) * saveEveryBlocks // restartMilkerEveryBlocks
-print("Time step = {0}, Milker will be initialized {1} times, first {2} will be skipped".format(dt,milkerInitsTotal, milkerInitsSkip))
+print("Time step = 1, Milker will be initialized {0} times, first {1} will be skipped".format(milkerInitsTotal, milkerInitsSkip))
 
 # create filenames for Ekin, Epot and time
 
@@ -198,19 +194,14 @@ class smcTranslocatorMilker(object):
 def initModel():
    
     birthArray = np.ones(N, dtype=np.double)*0.1 
-    deathArray = np.zeros(N, dtype=np.double) + 1. / (LIFETIME/dt)
+    deathArray = np.zeros(N, dtype=np.double) + 1. / (LIFETIME)
     stallArray = np.zeros(N, dtype=np.double)
-    pauseArray=np.ones(N, dtype=np.double) dt
-    stallDeathArray = np.zeros(N, dtype=np.double) + 1 / (LIFETIME/dt)
+    pauseArray=np.ones(N, dtype=np.double)
+    stallDeathArray = np.zeros(N, dtype=np.double) + 1 / (LIFETIME)
     smcNum = N // SEPARATION
-    konprob=kon*dt #CTCF binding probability per timestep
-    koffprob=koff*dt
+    konprob=kon #CTCF binding probability per timestep
+    koffprob=koff
     curPos = 0
-
-    #for i in [ 400,  500,  700, 1100, 1200, 1400, 1800, 1900, 2100, 2500, 2600,
-    #   2800, 3200, 3300, 3500, 3900, 4000, 4200, 4600, 4700, 4900, 5300,
-     #  5400]:
-    #  pauseArray[i]=pauseArray[i]*CTCFPause
     
     for size in TADSizes: # setting positions & strength of boundary elements, looping over each TAD
         curPos += size
@@ -283,4 +274,3 @@ for milkerCount in range(milkerInitsTotal):
 
 with open(Par_fname,"a+") as Parfile:
     Parfile.write(" tau="+str(LIFETIME)+"\n Separation="+str(SEPARATION)+"\n N="+str(N)+"\n smcStepsPerBlock="+str(smcStepsPerBlock)+"\n stiff="+str(stiff)+"\n dens="+str(dens)+"\n block="+str(block)+"\n SaveEveryBlocks="+str(saveEveryBlocks)+"\n skipSavedBlocksBeginning="+str(skipSavedBlocksBeginning)+"\n totalSavedBlocks="+str(totalSavedBlocks)+"\n restartMilkerEveryBlocks="+str(restartMilkerEveryBlocks)+"\n smcBondWiggleDist="+str(smcBondWiggleDist)+"\n smcBondDist="+str(smcBondDist)+"\n SmcTimestep=" + str(dt)+"\n Mean TADsize"+str(np.mean(TADSizes)))
-    #Parfile.write(" tau="+str(LIFETIME)+"\n Separation="+str(SEPARATION)+"\n N="+str(N)+"\n smcStepsPerBlock="+str(smcStepsPerBlock)+"\n stiff="+str(stiff)+"\n dens="+str(dens)+"\n block="+str(block)+"\n GENESIZE="+str(GENESIZE)+"\n DirTran="+str(DirTran)+"\n AigTran"+str(AigTran)+"\n SepGenes="+str(SepGenes)+"\n SepConv="+str(SepConv)+"\n ConvGenes="+str(ConvGenes)+"\n IncreasedBinding="+str(IncreasedBinding)+"\n SaveEveryBlocks="+str(saveEveryBlocks)+"\n skipSavedBlocksBeginning="+str(skipSavedBlocksBeginning)+"\n totalSavedBlocks="+str(totalSavedBlocks)+"\n restartMilkerEveryBlocks="+str(restartMilkerEveryBlocks)+"\n smcBondWiggleDist="+str(smcBondWiggleDist)+"\n smcBondDist="+str(smcBondDist)+"\n SmcTimestep=" + str(dt)+"\n Mean TADsize"+str(np.mean(TADSizes)))
