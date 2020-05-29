@@ -37,7 +37,7 @@ SLIDE_PAUSEP=float(sys.argv[5]) # pause prob passive arm
 
 TADSizes =  [400,100,200,400,100,200,400,100,200,400,100,200,400,100,200,400,100,200,400,100,200,400,100,200]
 N = sum(TADSizes) # number of monomers
-smcStepsPerBlock = 1#100 # I take something like 1/steppingprobability, because stepping is not determistic. I usually choose the probability of stepping to be max 0.1.
+smcStepsPerBlock = 1# I take something like 1/steppingprobability, because stepping is not determistic. I usually choose the probability of stepping to be max 0.1.
 stiff = 0                 # Polymer siffness in unit of bead size
 dens = 0.2 # density in beads / volume. The density can roughly be estimated by looking at the amount of DNA in a nuclear volume.
 box = (N / dens) ** 0.33  # Define size of the bounding box for Periodic Boundary Conditions
