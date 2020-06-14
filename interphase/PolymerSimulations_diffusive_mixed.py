@@ -9,12 +9,7 @@ from openmmlib import polymerutils
 from openmmlib.polymerutils import scanBlocks
 from openmmlib.openmmlib import Simulation
 from openmmlib.polymerutils import grow_rw
-import analysis_plot_lib
-sys.path.append("/net/levsha/share/homes/aafke/libs/looplib/")
-if not "/net/levsha/share/homes/aafke/miniconda3/lib/python3.6/site-packages/looplib-0.1-py3.6-linux-x86_64.egg" in sys.path:
-    sys.path.append("/net/levsha/share/homes/aafke/miniconda3/lib/python3.6/site-packages/looplib-0.1-py3.6-linux-x86_64.egg")
 from looplib import looptools
-sys.path.insert(0, "/net/levsha/share/homes/aafke/Documents/PolymerCode")
 import pyximport; pyximport.install()
 from smcTranslocator_diffusive_mixed.pyx import smcTranslocatorDirectional
 
@@ -27,15 +22,14 @@ steps=200
 if smcStepsPerBlock<1, reduce the number of 3D simulations per simulation block accordingly
 The speed of the smc is 1-PAUSEP. 
 
-One consideration is that the number of smc steps between 3D simulation blocks should never exceed 1 too much, as it will 
-result in jerky motion of the polymer.
+One consideration is that the number of smc steps between 3D simulation blocks should never exceed 1 too much, as it will result in jerky motion of the polymer.
 '''
 
 # -------defining parameters----------
 # -- basic loop extrusion parameters--
 GPU = sys.argv[1]
-LIFETIME = int(sys.argv[2])   # 300 Lifetime 
-SEPARATION = int(sys.argv[3]) # 200 Separation LEFs in number of monomers
+LIFETIME = int(sys.argv[2])   # Processivity
+SEPARATION = int(sys.argv[3]) # Separation LEFs in number of monomers
 
 PAUSEP=float(sys.argv[4]) # pause prob active arm, set to 0 if not using diffusive simulations
 SLIDE_PAUSEP=float(sys.argv[5]) # pause prob passive arm
@@ -43,7 +37,7 @@ SLIDE_PAUSEP=float(sys.argv[5]) # pause prob passive arm
 
 TADSizes =  [400,100,200,400,100,200,400,100,200,400,100,200,400,100,200,400,100,200,400,100,200,400,100,200]
 N = sum(TADSizes) # number of monomers
-smcStepsPerBlock = 1#100 # I take something like 1/steppingprobability, because stepping is not determistic. I usually choose the probability of stepping to be max 0.1.
+smcStepsPerBlock = 1# I take something like 1/steppingprobability, because stepping is not determistic. I usually choose the probability of stepping to be max 0.1.
 stiff = 0                 # Polymer siffness in unit of bead size
 dens = 0.2 # density in beads / volume. The density can roughly be estimated by looking at the amount of DNA in a nuclear volume.
 box = (N / dens) ** 0.33  # Define size of the bounding box for Periodic Boundary Conditions
@@ -63,7 +57,7 @@ PAIRED=0
 SLIDE=1# diffusive motion 
 loop_prefactor=1.5  # Should be the same as in smcTranslocator
 FULL_LOOP_ENTROPY=1 # Should be the same as in smcTranslocator
-FRACTION_ONESIDED=1#float(sys.argv[4])#1
+FRACTION_ONESIDED=float(sys.argv[6])
 
 if dt==0:
     syst.exit('WARNING: dt=0')
@@ -85,12 +79,12 @@ restartMilkerEveryBlocks = int(100/(smcStepsPerBlock*dt))   #int(100/(smcStepsPe
 smcBondWiggleDist = 0.2
 smcBondDist = 0.5
 
-if len(sys.argv)!=6:
+if len(sys.argv)!=7:
     sys.exit('Number of input arguments is not correct')
 
 #folder and number of blocks
 #folder = "trajectory"
-folder = "/net/levsha/share/homes/aafke/Documents/PolymerSimulations/OneSidedVariations"
+folder = "PolymerSimulations"
 
 FullFileName=os.path.join(folder,"loopextrusion_Lifetime={0}_separation={1}_density={2}_N={3}_saveEveryBlocks={4}_totalSavedBlocks={5}_SLIDE_PAUSEPROB={6}_PAUSEPROB={7}_dt={8}_FRACTION_ONESIDED={9}_entropy".format(LIFETIME, SEPARATION, dens,N,saveEveryBlocks,totalSavedBlocks,SLIDE_PAUSEP,PAUSEP,dt,FRACTION_ONESIDED))
 
@@ -224,10 +218,8 @@ class smcTranslocatorMilker(object):
         return self.curBonds, pastBonds
 
 def initModel():
-    # this just inits the simulation model. Put your previous init code here 
+   
     birthArray = np.ones(N, dtype=np.double)*0.1
-    #for i in np.cumsum(TADSizes)[0:-1]: #Increased loading at TAD borders
-     #   birthArray[i+50]=10
     deathArray = np.zeros(N, dtype=np.double) + 1. / (LIFETIME/dt)
     stallLeftArray = np.zeros(N, dtype=np.double)#Probability of stalling. Choose np.zeros(N, dtype=np.double) if no stalling 
     stallRightArray = np.zeros(N, dtype=np.double)
