@@ -24,7 +24,7 @@ REBIND_TIME=10
 LIFETIMES=400#number of smc lifetimes to simulate for
 NUM_SNAPS=400 # number of snapshots to take
 FRACTION_ONE_SIDED=1
-PROC_NAME=b"extrusion" # need it to be b for bytes
+PROC_NAME=b"extrusion with step counting" # need it to be b for bytes
 #activation times by default are set by rebinding times
 PAIRED=False #boolean variable to run simlef_paired instead.
 PUSHERS=False

@@ -1,3 +1,5 @@
+##This version of run_lefs can be used for simulating different scenarios with mixes of CI and CII 
+
 import numpy as np
 from mirnylib import h5dict
 import pyximport; pyximport.install(
@@ -21,10 +23,10 @@ SLIDING_RATE2=SLIDING_RATE # rate at which sliding legs shrink
 SHRINK_RATE=0
 SWITCH_RATE=0
 REBIND_TIME=10
-LIFETIMES=400#number of smc lifetimes to simulate for
+LIFETIMES=400#1000#that's a lot. # number of smc lifetimes to simulate for
 NUM_SNAPS=400 # number of snapshots to take
 FRACTION_ONE_SIDED=1
-PROC_NAME=b"extrusion" # need it to be b for bytes
+PROC_NAME=b"extrusion cond I + II code" # need it to be b for bytes
 #activation times by default are set by rebinding times
 PAIRED=False #boolean variable to run simlef_paired instead.
 PUSHERS=False
@@ -33,10 +35,13 @@ LOAD_OUTWARD=0
 LOCK_LIFE=1.0
 BLOCKED_LOCK = 0
 
+NON_STALL_SITE_PROB=1.0 # analogous to EMPTY_BIND, prob of binding a non-stalling site (e.g., not one of the targets)
 
 NUM_2 = 0
 EXTEND_2 = 1
 OFF_2 = 0.01
+
+OFF_DISTRIB=""
 
 log_name="log_default_name.txt"
 RESTART=False
@@ -85,6 +90,9 @@ if "extend2" in params.arg_dict:
     EXTEND_2=float(params.arg_dict["extend2"])
 if "off2" in params.arg_dict:
     OFF_2=float(params.arg_dict["off2"])
+if "offdistrib" in params.arg_dict:
+    OFF_DISTRIB=params.arg_dict["offdistrib"]
+    print("set offdistrib to", OFF_DISTRIB)
 
 if "slide" in params.arg_dict:
     SLIDING_RATE=float(params.arg_dict["slide"])
@@ -94,6 +102,8 @@ if "slide2" in params.arg_dict:
 
 if "frac" in params.arg_dict:
     FRACTION_ONE_SIDED=float(params.arg_dict["frac"])
+    #PROC_NAME=b"mixed extrusion"
+
 if "paired" in params.arg_dict:
     if int(params.arg_dict["paired"]) == 1:
         PAIRED=True
@@ -119,7 +129,88 @@ if "flag" in params.arg_dict:
 p = {}
 p['L'] = LENGTH
 p['N'] = NUM_SMC
-if NUM_2 == 0:
+if not (OFF_DISTRIB==""):
+    if (OFF_DISTRIB=="c1c2") or (OFF_DISTRIB=="c1c2_hela") or (OFF_DISTRIB=="c1c2_dt40"): # just two res times, 1 for each of CI, CII
+        #recall first fraction * NUM are one-sided
+        c1_factor=0.8
+        if OFF_DISTRIB=="c1c2_hela":
+            c1_factor=0.5
+        elif OFF_DISTRIB=="c1c2_dt40":
+            c1_factor=0.9
+        N_C1= int(c1_factor*NUM_SMC)
+        N_C1_onesided= int(0.2*N_C1)
+        N_C1_twosided= N_C1 - N_C1_onesided
+        N_C2= NUM_SMC-N_C1
+        N_C2_onesided= int(0.5*N_C2)
+        N_C2_twosided= N_C2 - N_C2_onesided        
+        p['R_OFF'] = [OFF_RATE]*N_C1_onesided + [OFF_2]*N_C2_onesided + [OFF_RATE]*N_C1_twosided + [OFF_2]*N_C2_twosided
+    if (OFF_DISTRIB=="c1c2stable") or (OFF_DISTRIB=="c1c2stable_hela") or (OFF_DISTRIB=="c1c2stable_dt40"): # three res times - 1 for CI, 2 for CII w/ some stably bound
+        c1_factor=0.8
+        if OFF_DISTRIB=="c1c2stable_hela":
+            c1_factor=0.5
+        elif OFF_DISTRIB=="c1c2stable_dt40":
+            c1_factor=0.9
+        N_C1= int(c1_factor*NUM_SMC)
+        N_C1_onesided= int(0.2*N_C1)
+        N_C1_twosided= N_C1 - N_C1_onesided
+        N_C2= NUM_SMC-N_C1
+        N_C2_onesided= int(0.5*N_C2)
+        N_C2_onesided_stable = int(0.5*N_C2_onesided)
+        N_C2_twosided= N_C2 - N_C2_onesided
+        N_C2_twosided_stable = int(0.5*N_C2_twosided)
+        p['R_OFF'] = [OFF_RATE]*N_C1_onesided + [OFF_2]*(N_C2_onesided-N_C2_onesided_stable) + [OFF_2/20.]*N_C2_onesided_stable + [OFF_RATE]*N_C1_twosided + [OFF_2]*(N_C2_twosided-N_C2_twosided_stable) + [OFF_2/20.]*N_C2_twosided_stable
+    if (OFF_DISTRIB=="c1c2stable2") or (OFF_DISTRIB=="c1c2stable2_hela") or (OFF_DISTRIB=="c1c2stable2_dt40"): # three res times - 1 for CI, 2 for CII w/ only 2-sided stably bound
+        c1_factor=0.8
+        if OFF_DISTRIB=="c1c2stable2_hela":
+            c1_factor=0.5
+        elif OFF_DISTRIB=="c1c2stable2_dt40":
+            c1_factor=0.9
+        N_C1= int(c1_factor*NUM_SMC)
+        N_C1_onesided= int(0.2*N_C1)
+        N_C1_twosided= N_C1 - N_C1_onesided
+        N_C2= NUM_SMC-N_C1
+        N_C2_onesided= int(0.5*N_C2)
+        N_C2_twosided= N_C2 - N_C2_onesided
+        p['R_OFF'] = [OFF_RATE]*N_C1_onesided + [OFF_2]*N_C2_onesided + [OFF_RATE]*N_C1_twosided + [OFF_2/20]*N_C2_twosided
+    p['R_EXTEND'] = EXTEND_RATE
+   
+    #and the same sets as above, but with velocities factor of 2 different for CI and CII
+    if OFF_DISTRIB=="c1c2v": 
+        N_C1= int(0.8*NUM_SMC)
+        N_C1_onesided= int(0.2*N_C1)
+        N_C1_twosided= N_C1 - N_C1_onesided
+        N_C2= NUM_SMC-N_C1
+        N_C2_onesided= int(0.5*N_C2)
+        N_C2_twosided= N_C2 - N_C2_onesided
+        p['R_OFF'] = [OFF_RATE]*N_C1_onesided + [OFF_2]*N_C2_onesided + [OFF_RATE]*N_C1_twosided + [OFF_2]*N_C2_twosided
+        p['R_EXTEND']= [EXTEND_RATE]*N_C1 + [EXTEND_2]*N_C2
+    if OFF_DISTRIB=="c1c2stablev": 
+        N_C1= int(0.8*NUM_SMC)
+        N_C1_onesided= int(0.2*N_C1)
+        N_C1_twosided= N_C1 - N_C1_onesided
+        N_C2= NUM_SMC-N_C1
+        N_C2_onesided= int(0.5*N_C2)
+        N_C2_onesided_stable = int(0.5*N_C2_onesided)
+        N_C2_twosided= N_C2 - N_C2_onesided
+        N_C2_twosided_stable = int(0.5*N_C2_twosided)
+        p['R_OFF'] = [OFF_RATE]*N_C1_onesided + [OFF_2]*(N_C2_onesided-N_C2_onesided_stable) + [OFF_2/20.]*N_C2_onesided_stable + [OFF_RATE]*N_C1_twosided + [OFF_2]*(N_C2_twosided-N_C2_twosided_stable) + [OFF_2/20.]*N_C2_twosided_stable
+        p['R_EXTEND']= [EXTEND_RATE]*N_C1 + [EXTEND_2]*N_C2
+    if (OFF_DISTRIB=="c1c2stable2v") or (OFF_DISTRIB=="c1c2stable2v_hela") or (OFF_DISTRIB=="c1c2stable2v_dt40"):
+        c1_factor=0.8
+        if OFF_DISTRIB=="c1c2stable2v_hela":
+            c1_factor=0.5
+        elif OFF_DISTRIB=="c1c2stable2v_dt40":
+            c1_factor=0.9
+        N_C1= int(c1_factor*NUM_SMC)
+        N_C1_onesided= int(0.2*N_C1)
+        N_C1_twosided= N_C1 - N_C1_onesided
+        N_C2= NUM_SMC-N_C1
+        N_C2_onesided= int(0.5*N_C2)
+        N_C2_twosided= N_C2 - N_C2_onesided
+        p['R_OFF'] = [OFF_RATE]*N_C1_onesided + [OFF_2]*N_C2_onesided + [OFF_RATE]*N_C1_twosided + [OFF_2/20]*N_C2_twosided
+        p['R_EXTEND']= [EXTEND_RATE]*N_C1 + [EXTEND_2]*N_C2
+
+elif NUM_2 == 0:
     p['R_OFF'] = OFF_RATE
     p['R_EXTEND'] = EXTEND_RATE
 else:
@@ -143,21 +234,32 @@ p['FRACTION_ONE_SIDED']=FRACTION_ONE_SIDED
 
 p['T_MAX_LIFETIMES'] = LIFETIMES
 p['T_MAX'] = p['T_MAX_LIFETIMES']*(1. / min([OFF_RATE,OFF_2]) + p['REBINDING_TIME']) if OFF_RATE > 0  else p['T_MAX_LIFETIMES']*(p['L']/min([EXTEND_RATE,EXTEND_2])+p['REBINDING_TIME'])
+if not (OFF_DISTRIB==""):
+    p['T_MAX'] = max([p['T_MAX'], 10./min(p['R_OFF'])])
 p['N_SNAPSHOTS'] = NUM_SNAPS
+PROC_NAME=b"extrusion, offdistrib"
 p['PROCESS_NAME'] = PROC_NAME
+
+
+
 
 
 #do the simulation
 print("commencing simulation...")
-if PUSHERS:
+#note: simlef_mix runs faster than simlef_onesided. Not sure why. In any case, 
+# just use simlef_mix for all sims except for switch rate > 0
+if PUSHERS:#180521: in principle, I think PUSHERS should work with slide nonzero and even regular two-sided, but don't worry for now
     l_sites, r_sites, lagging_legs, ts = simlef_pushers.simulate(p)
 elif PAIRED:
     l_sites, r_sites, c_sites, ts = simlef_paired.simulate(p)
 else:
-    if (FRACTION_ONE_SIDED<1) or (SLIDING_RATE>0):
-        l_sites, r_sites, lagging_legs, ts = simlef_mix.simulate(p) 
+    if not (SWITCH_RATE > 0): 
+        l_sites, r_sites, lagging_legs, ts = simlef_mix.simulate(p) # historical accident that I return lagging legs here
     else:
         l_sites, r_sites, leading_legs, ts = simlef_onesided.simulate(p)
+
+
+
 
 
 #calculate
@@ -179,6 +281,7 @@ comp_stdev=np.std(compacted)
 fname="output/smc_traj_L{l}_N{n}_off{off}_ext{ext}_shr{shr}_sw{sw}_bind{bind}".format(l=p['L'],n=p['N'],
                                                                                       off=OFF_RATE,ext=EXTEND_RATE,shr=p['R_SHRINK'],
                                                                                       sw=p['R_SWITCH'],bind=p['REBINDING_TIME'])
+#if FRACTION_ONE_SIDED<1:
 fname=fname+"_frac{frac}".format(frac=FRACTION_ONE_SIDED)
 if SLIDING_RATE>0:
     fname=fname+"_sl{slide}".format(slide=SLIDING_RATE)
@@ -219,13 +322,16 @@ with open(fname, "w") as myfile:
             for nn in range(len(c_sites[ii])):
                 myfile.write(str(c_sites[ii][nn])+" ")
         else:
-            if (FRACTION_ONE_SIDED<1) or (SLIDING_RATE>0):
+            if not (SWITCH_RATE > 0):
                 for nn in range(len(lagging_legs)):
-                    myfile.write(str(lagging_legs[nn])+" ") #Just record lagging legs insted of leading.
+                    myfile.write(str(lagging_legs[nn])+" ") #recording lagging legs insted of leading.
             else:
                 for nn in range(NUM_SMC):
                     myfile.write(str(leading_legs[ii][nn])+" ")
         myfile.write("\n")
     
     myfile.write(str(p))
+
+
+
 

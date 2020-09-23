@@ -17,7 +17,8 @@ setup(
                              'looplib/simlef_mix.pyx',
                              'looplib/simlef_onesided.pyx',
                              'looplib/simlef_paired.pyx',
-                             'looplib/simlef_pushers.pyx'
+                             'looplib/simlef_pushers.pyx',
+                             'looplib/simlef_mix_slidedistrib.pyx'
                              ]),
     include_dirs=[np.get_include()]
 )
