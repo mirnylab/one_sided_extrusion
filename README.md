@@ -20,7 +20,7 @@ This is an extended version of looplib by Anton Goloborodko
 
 ## References
 [1] Edward J. Banigan*, Aafke A. van den Berg*, Hugo B. Brandão*, John F. Marko, Leonid A. Mirny. 
-bioRxiv 815340; doi: https://doi.org/10.1101/815340 
+eLife 9:e53558 (2020). Also available as bioRxiv 815340; doi: https://doi.org/10.1101/815340 
 *These authors contributed equally
 
-[2] Edward J. Banigan and L. A. Mirny bioRxiv (To be posted).
+[2] Edward J. Banigan and L. A. Mirny bioRxiv 2020.09.22.309146; doi: https://doi.org/10.1101/2020.09.22.309146
