@@ -23,4 +23,5 @@ This is an extended version of looplib by Anton Goloborodko
 eLife 9:e53558 (2020). Also available as bioRxiv 815340; doi: https://doi.org/10.1101/815340 
 *These authors contributed equally
 
-[2] Edward J. Banigan and L. A. Mirny bioRxiv 2020.09.22.309146; doi: https://doi.org/10.1101/2020.09.22.309146
+[2] Edward J. Banigan and L. A. Mirny. eLife 9:63528 (2020). Also available as bioRxiv 
+2020.09.22.309146; doi: https://doi.org/10.1101/2020.09.22.309146
