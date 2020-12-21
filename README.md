@@ -15,7 +15,7 @@ This is an extended version of looplib by Anton Goloborodko
 - 1dsims contains code for running 1D extrusion simulations with looplib described in Ref [1]
 - 1dsims_symmetries_and_dynamics contains code for running 1D extrusion simulations with looplib described in Ref [2]
 
-*Mitotic and Interphase codes:
+*Mitotic and Interphase codes:*
 - polysims contains code for running 3D extrusion simulations with openmm-polymer
 
 ## References
