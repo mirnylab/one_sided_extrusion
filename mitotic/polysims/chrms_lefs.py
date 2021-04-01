@@ -128,7 +128,7 @@ if "smcbond" in params.arg_dict:
     smcBondWiggleDist=float(params.arg_dict["smcbond"])
 
 if "stiffness" in params.arg_dict:
-    stiff = float(params.arg_dict["stiff"])
+    stiff = float(params.arg_dict["stiffness"])
 
 if "lefsattract" in params.arg_dict:
     LEFS_ATTRACT = int(params.arg_dict["lefsattract"])
