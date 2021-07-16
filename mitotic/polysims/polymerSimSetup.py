@@ -19,6 +19,19 @@ class newSim(Simulation):
     def sample_func():
         pass
 
+    def addExtensionalForce(self,magnitude=0):#,monolist=None):
+        """
+        Add a force that pulls first monomer toward x=-\infty last monomer toward x=\infty (or vice versa?)
+        """
+        energy= ("direc * F * x")
+        extforce= self.mm.CustomExternalForce(energy)
+        self.forceDict["ExtensionalForce"]=extforce
+        extforce.addGlobalParameter("F", magnitude * self.kT / nm)
+        extforce.addPerParticleParameter("direc")
+        extforce.addParticle(0, [1])
+        extforce.addParticle(int(self.N)-1, [-1])
+
+
 
 def init_positions(num_monos, polymer="isotropic",length=50):
     """

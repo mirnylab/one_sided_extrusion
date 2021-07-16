@@ -70,6 +70,8 @@ ERROR_TOL=0.02
 dt=80
 THERMOSTAT=0.01
 
+EXT_FORCE=0.
+
 
 #folder 
 main_folder= "output/"
@@ -122,6 +124,8 @@ if "slidepause" in params.arg_dict:
 if "transparent" in params.arg_dict:
     TRANSPARENT=int(params.arg_dict["transparent"])
 
+if "extforce" in params.arg_dict:
+    EXT_FORCE=float(params.arg_dict["extforce"])
 if "polybond" in params.arg_dict:
     polymerBondWiggleDist=float(params.arg_dict["polybond"])
 if "smcbond" in params.arg_dict:
@@ -242,6 +246,10 @@ while True:
         folder=folder+"_paired"
         if NO_LOG_NAME:
             log_name=log_name+"paired"
+    if EXT_FORCE > 0:
+        folder=folder+"_F{0}".format(EXT_FORCE)
+        if NO_LOG_NAME:
+            log_name=log_name+"F{0}".format(EXT_FORCE)
     if LEFS_ATTRACT:
         folder=folder+"_lefattr{0}".format(LEF_ATTRACTION_ENERGY)
         if NO_LOG_NAME:
@@ -558,6 +566,9 @@ for milkerCount in range(milkerInitsTotal):
             my_sim.addSmoothSquareWellForce(repulsionEnergy=7.5, repulsionRadius=1.05, attractionEnergy=ANY_ATTRACTION_ENERGY)
     if not (LEFS_ATTRACT or ANY_ATTRACT):
         my_sim.addPolynomialRepulsiveForce(trunc=1.5, radiusMult=1.05)
+
+    if EXT_FORCE > 0:
+        my_sim.addExtensionalForce(EXT_FORCE)
 
     my_sim.step = block
 
